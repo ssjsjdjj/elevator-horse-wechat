@@ -90,3 +90,55 @@ test('损坏的历史纪录不传播非法分数', () => {
   assert.equal(setup({ record: { best: Infinity } }).app.best, 0);
   assert.equal(setup({ record: { best: -123 } }).app.best, 0);
 });
+
+test('场景与按钮共享装人触控区，穿过体力条不会误松手，滑出才释放', () => {
+  const f = setup(); f.app.act('start');
+  const L = f.app.renderer.layout;
+  const p = (id, x, y) => ({ identifier: id, clientX: L.x + x * L.scale, clientY: L.y + y * L.scale });
+  const scene = p(4, 187, L.stageY + 100);
+  f.callbacks.start({ changedTouches: [scene] }); assert.equal(f.app.engine.holding, true);
+  f.callbacks.move({ changedTouches: [p(4, 187, L.stageY + L.stageH + 18)] });
+  assert.equal(f.app.engine.holding, true);
+  f.callbacks.move({ changedTouches: [p(4, 187, L.stageY + L.stageH + 75)] });
+  assert.equal(f.app.engine.holding, true);
+  f.callbacks.move({ changedTouches: [p(4, 3, L.stageY + 100)] });
+  assert.equal(f.app.engine.holding, false); assert.equal(f.app.touchId, null);
+});
+
+test('场景长按不会覆盖暂停、音效或结算按钮', () => {
+  const f = setup(); f.app.act('start');
+  const sound = f.touch(1, 'sound');
+  f.callbacks.start({ changedTouches: [sound] }); assert.equal(f.app.engine.holding, false);
+  f.callbacks.end({ changedTouches: [sound] }); assert.equal(f.app.muted, true);
+  const pause = f.touch(2, 'pause');
+  f.callbacks.start({ changedTouches: [pause] }); f.callbacks.end({ changedTouches: [pause] });
+  assert.equal(f.app.engine.mode, 'paused');
+  assert.equal(f.app.renderer.hits.some(h => h.id === 'hold'), false);
+  f.app.act('resume'); f.app.engine.finish('complete'); f.app.renderer.render(f.app.engine, f.app, 1000);
+  assert.equal(f.app.renderer.hits.some(h => h.id === 'hold'), false);
+});
+
+test('极限装人触发音效、轻震和限时视觉反馈，倒计时持续推进', () => {
+  const f = setup(); const sounds = []; let vibrations = 0;
+  f.api.vibrateShort = () => { vibrations += 1; };
+  f.app.audio.play = name => sounds.push(name);
+  f.app.act('start'); f.app.engine.update(3.6);
+  const before = f.app.engine.elapsed; f.app.engine.setHolding(true);
+  assert.equal(f.app.engine.nearCount, 1); assert.equal(vibrations, 1);
+  assert.ok(sounds.includes('near')); assert.equal(f.app.nearUntil - f.app.nearStarted, 950);
+  f.app.engine.update(0.1); assert.ok(f.app.engine.elapsed > before);
+  f.app.engine.pause(); assert.equal(f.app.nearUntil, 0);
+});
+
+test('小屏保持全宽，主要按钮触点不小于44px且不互相覆盖', () => {
+  for (const [width, height] of [[320,568],[375,667],[390,844],[430,932],[812,375]]) {
+    const f = setup({ width, height }); f.app.act('start');
+    const L = f.app.renderer.layout;
+    if (width <= 430) assert.ok(Math.abs(L.scale * 375 - width) < 1e-6);
+    for (const hit of f.app.renderer.hits) {
+      assert.ok(hit.w * L.scale >= 44 - 1e-6); assert.ok(hit.h * L.scale >= 44 - 1e-6);
+    }
+    const pause = f.app.renderer.hits.find(h => h.id === 'pause'), sound = f.app.renderer.hits.find(h => h.id === 'sound');
+    assert.ok(pause.x + pause.w <= sound.x);
+  }
+});

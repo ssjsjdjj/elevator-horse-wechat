@@ -87,3 +87,34 @@ test('无效时间不改变状态', () => {
   const g = make(); g.start(); [NaN, Infinity, -1, 0].forEach(t => g.update(t));
   assert.equal(g.elapsed, 0); assert.equal(g.score, 0);
 });
+
+test('8秒和20秒切换节奏且各通知一次，重开恢复教学节奏', () => {
+  const events = []; const g = make(events); g.start();
+  assert.equal(g.stage.id, 'warmup');
+  while (g.mode === 'playing') { g.setHolding(g.phase !== 'closed'); g.update(1 / 120); }
+  assert.deepEqual(events.filter(e => e.type === 'stage').map(e => e.stage), ['rush', 'inspection']);
+  assert.equal(g.stage.id, 'inspection');
+  g.start(); assert.equal(g.stage.id, 'warmup'); assert.equal(g.notifiedStage, 'warmup');
+});
+
+test('加速只影响新进入的相位，不会截断正在播放的开门预警', () => {
+  const g = make(); g.start(); g.elapsed = 7.9; g.enterPhase('warning'); g.setHolding(true);
+  g.update(0.2);
+  assert.equal(g.stage.id, 'rush'); assert.equal(g.phase, 'warning');
+  assert.equal(g.phaseDuration, C.warningDuration);
+  assert.ok(Math.abs(g.phaseTime - 0.2) < 1e-6);
+  g.elapsed = 20.1; g.enterPhase('closed');
+  assert.ok(g.phaseDuration >= 1.45 && g.phaseDuration <= 1.7);
+});
+
+test('三阶段依次加速，随机取最短或最长间隔时正确操作仍能通关', () => {
+  for (const random of [() => 0, () => 0.5, () => 0.999999]) {
+    const g = new Engine({ random }); g.start();
+    while (g.mode === 'playing') { g.setHolding(g.phase !== 'closed'); g.update(1 / 120); }
+    assert.equal(g.reason, 'complete'); assert.equal(g.lives, 3); assert.ok(g.energy > 0);
+  }
+  for (let i = 1; i < C.stages.length; i += 1) {
+    assert.ok(C.stages[i].closed[1] < C.stages[i - 1].closed[0]);
+    assert.equal(C.warningDuration, 0.85);
+  }
+});
