@@ -32,7 +32,7 @@ class Engine {
     this.messageUntil = 0;
     this.reason = '';
     this.resumeGrace = 0;
-    this.events = [];
+    this.notifiedStage = 'warmup';
   }
 
   emit(type, detail) {
@@ -52,12 +52,19 @@ class Engine {
     this.reason = '';
     this.resumeGrace = 0;
     this.messageUntil = 0;
+    this.notifiedStage = 'warmup';
     this.enterPhase('closed');
     this.emit('start');
   }
 
   get remaining() { return Math.max(0, C.duration - this.elapsed); }
   get multiplier() { return 1 + Math.min(this.combo, 4) * 0.25; }
+  get stage() {
+    for (let i = C.stages.length - 1; i >= 0; i -= 1) {
+      if (this.elapsed + EPSILON >= C.stages[i].start) return C.stages[i];
+    }
+    return C.stages[0];
+  }
   get phaseProgress() { return Math.min(1, this.phaseTime / this.phaseDuration); }
   get danger() {
     return (this.phase === 'opening' && this.phaseTime >= C.reactionGrace) ||
@@ -75,7 +82,7 @@ class Engine {
       this.nearThisCycle = true;
       this.nearCount += 1;
       this.score += C.nearBonus;
-      this.say('极限装人！ +60', 0.8);
+      this.say('差点失去人籍！ +60', 1);
       this.emit('near');
     }
     this.emit('pose', { human: next });
@@ -93,7 +100,8 @@ class Engine {
       this.cycle += 1;
       this.caughtThisCycle = false;
       this.nearThisCycle = false;
-      this.phaseDuration = this.cycle === 1 ? 3 : 2.1 + this.random() * 1.2;
+      const range = this.stage.closed;
+      this.phaseDuration = this.cycle === 1 ? 3 : range[0] + this.random() * (range[1] - range[0]);
     } else if (phase === 'warning') {
       this.phaseDuration = C.warningDuration;
       this.say('叮！有脚步声，快装人！', C.warningDuration);
@@ -102,7 +110,8 @@ class Engine {
       this.phaseDuration = C.openingDuration;
       this.emit('door');
     } else if (phase === 'open') {
-      this.phaseDuration = 1.3 + this.random() * 0.5;
+      const range = this.stage.open;
+      this.phaseDuration = range[0] + this.random() * (range[1] - range[0]);
     } else {
       this.phaseDuration = C.closingDuration;
     }
@@ -148,6 +157,10 @@ class Engine {
       const safeAtStart = this.resumeGrace > 0;
       this.elapsed += dt;
       this.phaseTime += dt;
+      if (this.stage.id !== this.notifiedStage) {
+        this.notifiedStage = this.stage.id;
+        this.emit('stage', { stage: this.stage.id, label: this.stage.label });
+      }
       this.resumeGrace = Math.max(0, this.resumeGrace - dt);
       if (this.holding) {
         this.energy = Math.max(0, this.energy - C.energyDrain * dt);

@@ -13,7 +13,7 @@ class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.hits = [];
-    this.layout = { scale: 1, x: 0, y: 0, height: 700, stageH: 312 };
+    this.layout = { scale: 1, x: 0, y: 0, height: 700, stageY: 219, stageH: 344, compact: false };
   }
 
   resize(info, menu) {
@@ -27,12 +27,16 @@ class Renderer {
     const top = Math.max(safe.top || 0, menu && menu.bottom > 0 ? menu.bottom + 8 : 12);
     const bottom = Math.max(10, h - (safe.bottom || h));
     const available = Math.max(180, h - top - bottom);
-    const scale = Math.min(w / 375, available / 700);
+    // 竖屏优先用满宽度，矮屏压缩标题和留白；极矮横屏才整体降级。
+    const scale = Math.min(w / 375, available / 520);
     const height = Math.min(810, available / scale);
+    const compact = height < 690;
+    const stageY = compact ? 150 : 219;
     this.layout = {
       x: (w - 375 * scale) / 2,
       y: top + (available - height * scale) / 2,
-      scale: scale, height: height, stageH: 312 + height - 700
+      scale: scale, height: height, stageY: stageY,
+      stageH: height - stageY - 137, compact: compact
     };
   }
 
@@ -98,15 +102,22 @@ class Renderer {
     if (!o.flat) this.rect(x, y + 4, w, h, 12, P.ink);
     this.rect(x, y + dy, w, h, 12, o.fill || P.lime, o.flat ? P.line : P.ink, o.flat ? 1 : 2);
     this.fitText(label, x + w / 2, y + dy + (o.sub ? 29 : h / 2 + 6), w - 20, o.size || 18, P.ink, '700', 'center');
-    if (o.sub) this.text(o.sub, x + w / 2, y + dy + 49, 10, P.ink, '400', 'center');
-    if (id) this.hits.push({ id: id, x: x, y: y, w: w, h: h + 4 });
+    if (o.sub) this.fitText(o.sub, x + w / 2, y + dy + 49, w - 20, 12, P.ink, '400', 'center');
+    if (id) {
+      const targetW = Math.max(w, 44 / this.layout.scale);
+      const targetH = Math.max(h + 4, 44 / this.layout.scale);
+      this.hits.push({ id: id, x: clamp(x + (w - targetW) / 2, 0, 375 - targetW),
+        y: Math.max(0, y + (h - targetH) / 2), w: targetW, h: targetH });
+    }
   }
 
-  horse(cx, ground, human, time, size) {
+  horse(cx, ground, human, time, size, poseAge) {
     const c = this.ctx;
+    const settle = human ? Math.sin(clamp(poseAge / 0.28, 0, 1) * Math.PI) : 0;
     c.save(); c.translate(cx, ground); c.scale(size || 1, size || 1);
     this.ellipse(0, 0, 76, 8, '#29282f25');
     c.translate(0, -10);
+    if (human) c.translate(0, -settle * 6);
     if (!human) { c.rotate(Math.sin(time * 12) * 0.075); c.translate(0, -4 - Math.sin(time * 12) * 4); }
     const leg = (x, angle, humanLeg) => {
       c.save(); c.translate(x, -42); c.rotate(angle);
@@ -120,7 +131,8 @@ class Renderer {
       this.rect(44, -41, 34, 29, 4, '#675747', P.ink, 2.5);
       this.rect(53, -47, 15, 7, 2, null, P.ink, 2.5);
       this.text('工', 61, -21, 12, '#e4d9b6', '500', 'center');
-      c.beginPath(); c.moveTo(-5, -114); c.lineTo(6, -114); c.lineTo(3, -104); c.lineTo(8, -76); c.lineTo(0, -67); c.lineTo(-8, -76); c.lineTo(-3, -104); c.closePath(); c.fillStyle = '#b86157'; c.fill();
+      c.save(); c.translate(0, -113); c.rotate(settle * 0.22); c.translate(0, 113);
+      c.beginPath(); c.moveTo(-5, -114); c.lineTo(6, -114); c.lineTo(3, -104); c.lineTo(8, -76); c.lineTo(0, -67); c.lineTo(-8, -76); c.lineTo(-3, -104); c.closePath(); c.fillStyle = '#b86157'; c.fill(); c.restore();
       this.line(-23, -118, -10, -103, P.ink, 1); this.line(23, -118, 10, -103, P.ink, 1);
     } else {
       const swing = Math.sin(time * 15) * 0.4;
@@ -147,7 +159,10 @@ class Renderer {
     this.rect(human ? -27 : -15, 8, human ? 57 : 69, 37, 16, P.cream, P.ink, 3);
     this.ellipse(human ? -11 : 13, 22, 2.5, 3.5, '#514a42'); this.ellipse(human ? 13 : 37, 22, 2.5, 3.5, '#514a42');
     c.beginPath(); c.moveTo(-8, 36); c.quadraticCurveTo(12, 49, 29, 36); c.strokeStyle = P.ink; c.lineWidth = 2; c.stroke();
-    if (human) { this.rect(-31, -29, 32, 26, 6, null, P.ink, 1.5); this.rect(3, -32, 31, 26, 6, null, P.ink, 1.5); this.line(1, -18, 4, -18, P.ink, 2); }
+    if (human) {
+      c.save(); c.translate(0, -settle * 11);
+      this.rect(-31, -29, 32, 26, 6, null, P.ink, 1.5); this.rect(3, -32, 31, 26, 6, null, P.ink, 1.5); this.line(1, -18, 4, -18, P.ink, 2); c.restore();
+    }
     c.restore(); c.restore();
   }
 
@@ -161,8 +176,8 @@ class Renderer {
     this.text('老板', x, y - 12, 10, P.ink, '400', 'center');
   }
 
-  scene(g, time, shake) {
-    const c = this.ctx; const x = 18, y = 219, w = 339, h = this.layout.stageH;
+  scene(g, time, shake, app, timestamp) {
+    const c = this.ctx; const x = 18, y = this.layout.stageY, w = 339, h = this.layout.stageH;
     c.save(); c.translate(shake ? Math.sin(time * 80) * 3 : 0, 0);
     this.rect(x, y, w, h, 12, P.wall, P.ink, 2);
     // 场景内部裁切，门板不会穿出外框。
@@ -199,36 +214,60 @@ class Renderer {
     this.rect(-21, -20, 43, 42, 0, '#ddd5b6', '#8b897d', 1); this.text('今日也要', 0, -4, 9, '#635f56', '400', 'center'); this.text('马到成功', 0, 11, 9, '#635f56', '400', 'center'); c.restore();
     this.rect(x + w - 23, y + h - 121, 12, 44, 5, '#8d9188', '#666a61', 1); this.text('↑', x + w - 17, y + h - 100, 10, '#e9edc9', '400', 'center');
     const size = Math.min(1.03, (h - 73) / 255);
-    this.horse(187.5, y + h - 27, g.holding, time, size);
+    this.horse(187.5, y + h - 27, g.holding, time, size, (timestamp - app.poseStarted) / 1000);
     const bubble = g.mode === 'intro' ? '你的精神状态，老板知道吗？' : g.speech;
-    c.font = '12px ' + FONT; const bw = clamp(c.measureText(bubble).width + 24, 160, 255);
+    c.font = '14px ' + FONT; const bw = clamp(c.measureText(bubble).width + 24, 170, 290);
     this.rect(187.5 - bw / 2 + 2, y + 48, bw, 33, 9, '#29282f20');
     this.rect(187.5 - bw / 2, y + 45, bw, 33, 9, P.paper, P.ink, 2);
     c.beginPath(); c.moveTo(181, y + 78); c.lineTo(187, y + 85); c.lineTo(193, y + 78); c.fillStyle = P.paper; c.fill(); c.strokeStyle = P.ink; c.lineWidth = 2; c.stroke();
-    this.fitText(bubble, 187.5, y + 66, bw - 16, 12, P.ink, '500', 'center');
+    this.fitText(bubble, 187.5, y + 66, bw - 16, 14, P.ink, '500', 'center');
     this.text(Array.from({ length: 3 }, (_, i) => i < g.lives ? '●' : '○').join(' '), x + 13, y + h - 9, 11, P.ink, '400');
     this.text(g.holding ? '人模人样' : '发疯 ×' + g.multiplier.toFixed(2), x + w - 12, y + h - 9, 10, P.ink, '400', 'right');
+    if (g.mode === 'playing' && timestamp < app.nearUntil) this.nearFeedback(time, timestamp - app.nearStarted, y, h);
     c.restore();
   }
 
+  nearFeedback(time, age, y, h) {
+    const c = this.ctx, progress = clamp(age / 950, 0, 1);
+    c.save();
+    c.globalAlpha = Math.min(1, (1 - progress) * 2.4);
+    const originY = y + h * 0.55;
+    for (let i = 0; i < 12; i += 1) {
+      const angle = (i / 12) * Math.PI * 2;
+      const radius = 38 + progress * 105;
+      const px = 187.5 + Math.cos(angle) * radius;
+      const py = originY + Math.sin(angle) * radius * 0.65 + progress * progress * 18;
+      c.save(); c.translate(px, py); c.rotate(angle + progress * 2);
+      this.rect(-3, -5, 6, 10, 1, [P.lime, P.purple, P.cream][i % 3]); c.restore();
+    }
+    c.save(); c.translate(285, originY - progress * 30);
+    const pop = 1 + Math.sin(clamp(age / 180, 0, 1) * Math.PI) * 0.18;
+    c.scale(pop, pop); c.rotate(-0.1);
+    this.rect(-43, -30, 86, 57, 9, P.lime, P.ink, 2);
+    this.text('+60', 0, 4, 30, P.ink, '900', 'center');
+    this.text('极限装人', 0, 20, 11, P.ink, '500', 'center');
+    c.restore(); c.restore();
+  }
+
   overlay(g, app) {
-    const y = 219, h = this.layout.stageH;
+    const y = this.layout.stageY, h = this.layout.stageH, short = h < 285;
     this.rect(20, y + 2, 335, h - 4, 10, P.paper);
     if (g.mode === 'paused') {
-      this.text('先喘口气，马也需要休息', 187.5, y + 64, 12, P.muted, '400', 'center');
-      this.text('游戏已暂停', 187.5, y + 112, 28, P.ink, '800', 'center');
-      this.text('进度保留，回来后有 1 秒反应时间。', 187.5, y + 148, 11, P.muted, '400', 'center');
-      this.button('resume', '继续装人  ↗', 52, y + 181, 271, 51);
+      this.text('先喘口气，马也需要休息', 187.5, y + (short ? 35 : 64), 12, P.muted, '400', 'center');
+      this.text('游戏已暂停', 187.5, y + (short ? 82 : 112), 28, P.ink, '800', 'center');
+      this.text('进度保留，回来后有 1 秒反应时间。', 187.5, y + (short ? 119 : 148), 12, P.muted, '400', 'center');
+      this.button('resume', '继续装人  ↗', 52, y + (short ? h - 72 : 181), 271, 51);
       return;
     }
-    this.text(app.newBest ? '本机新纪录 / 精神鉴定' : '本次精神鉴定', 187.5, y + 37, 10, P.muted, '400', 'center');
-    this.fitText(g.title, 187.5, y + 77, 299, 25, P.ink, '800', 'center');
-    this.text(String(Math.floor(g.score)), 187.5, y + 142, 56, P.ink, '800', 'center');
-    this.text('发疯值', 187.5, y + 166, 11, P.muted, '400', 'center');
-    this.fitText(g.resultCopy, 187.5, y + 195, 300, 12, P.muted, '400', 'center');
-    this.text('本机最佳 ' + app.best + '  ·  极限装人 ' + g.nearCount + ' 次', 187.5, y + 218, 11, P.muted, '400', 'center');
-    this.button('share', '挑战好友', 42, y + 239, 140, 43, { flat: true, fill: P.lime, size: 14 });
-    this.button('copy', '复制战绩', 193, y + 239, 140, 43, { flat: true, fill: P.paper, size: 14 });
+    this.text(app.newBest ? '本机新纪录 / 精神鉴定' : '本次精神鉴定', 187.5, y + (short ? 23 : 37), 11, P.muted, '400', 'center');
+    this.fitText(g.title, 187.5, y + (short ? 57 : 77), 299, short ? 23 : 25, P.ink, '800', 'center');
+    this.text(String(Math.floor(g.score)), 187.5, y + (short ? 110 : 142), short ? 47 : 56, P.ink, '800', 'center');
+    if (!short) this.text('发疯值', 187.5, y + 166, 12, P.muted, '400', 'center');
+    this.fitText(g.resultCopy, 187.5, y + (short ? 139 : 195), 300, 12, P.muted, '400', 'center');
+    this.text('本机最佳 ' + app.best + '  ·  极限装人 ' + g.nearCount + ' 次', 187.5, y + (short ? 161 : 218), 11, P.muted, '400', 'center');
+    const buttonY = y + (short ? h - 54 : 239);
+    this.button('share', '挑战好友', 42, buttonY, 140, 44, { flat: true, fill: P.lime, size: 14 });
+    this.button('copy', '复制战绩', 193, buttonY, 140, 44, { flat: true, fill: P.paper, size: 14 });
   }
 
   render(g, app, timestamp) {
@@ -237,34 +276,43 @@ class Renderer {
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.fillStyle = P.paper; c.fillRect(0, 0, this.width, this.height);
     c.save(); c.translate(L.x, L.y); c.scale(L.scale, L.scale);
-    this.text('摸鱼宇宙 / 电梯分部', 19, 24, 10, P.muted, '500');
+    this.text('摸鱼宇宙 / 电梯分部', 19, 27, 11, P.muted, '500');
     if (g.mode === 'playing') {
-      this.button('pause', '暂停', 270, 3, 40, 34, { flat: true, fill: P.paper, size: 11 });
+      this.button('pause', '暂停', 216, 2, 53, 44, { flat: true, fill: P.paper, size: 12 });
     }
-    this.button('sound', app.muted ? '音效关' : '音效开', 316, 3, 43, 34, { flat: true, fill: P.paper, size: 10 });
-    this.text('PLEASE ACT NORMAL.', 19, 52, 10, P.muted, '500');
-    this.text('电梯里禁止', 17, 91, 33, P.ink, '900');
-    this.text('变成', 17, 129, 33, P.ink, '900');
-    c.save(); c.translate(105, 113); c.rotate(-0.1); this.rect(-18, -20, 42, 40, 1, P.lime); this.text('马', 3, 12, 33, P.ink, '900', 'center'); c.restore();
-    c.save(); c.translate(310, 106); c.rotate(0.25); this.ellipse(0, 0, 29, 29, null, P.red, 1.8); this.text('忍住！', 2, 6, 16, P.red, '500', 'center'); c.restore();
-    this.text('门开做人 · 门关做马', 19, 151, 12, P.muted, '400');
-    this.line(18, 165, 357, 165, P.line, 1);
-    this.text('发疯值', 19, 183, 10, P.muted); this.text(String(Math.floor(g.score)).padStart(4, '0'), 18, 209, 27, P.ink, '500');
-    this.text('本机最佳', 142, 183, 10, P.muted); this.text(app.best ? String(app.best) : '—', 142, 206, 19, P.ink, '500');
-    this.text('剩余时间', 356, 183, 10, P.muted, '400', 'right'); this.text(Math.ceil(g.remaining) + 's', 356, 209, 26, P.ink, '500', 'right');
-    this.scene(g, time, app.hitUntil > timestamp);
+    this.button('sound', app.muted ? '音效关' : '音效开', 304, 2, 53, 44, { flat: true, fill: P.paper, size: 11 });
+    if (L.compact) {
+      this.text('电梯里禁止变成马', 18, 75, 27, P.ink, '900');
+      this.text('门开做人 · 门关做马', 19, 90, 12, P.muted);
+    } else {
+      this.text('PLEASE ACT NORMAL.', 19, 56, 10, P.muted, '500');
+      this.text('电梯里禁止', 17, 91, 33, P.ink, '900');
+      this.text('变成', 17, 129, 33, P.ink, '900');
+      c.save(); c.translate(105, 113); c.rotate(-0.1); this.rect(-18, -20, 42, 40, 1, P.lime); this.text('马', 3, 12, 33, P.ink, '900', 'center'); c.restore();
+      c.save(); c.translate(310, 106); c.rotate(0.25); this.ellipse(0, 0, 29, 29, null, P.red, 1.8); this.text('忍住！', 2, 6, 16, P.red, '500', 'center'); c.restore();
+      this.text('门开做人 · 门关做马', 19, 151, 12, P.muted, '400');
+    }
+    const hudLine = L.stageY - 54, labelY = L.stageY - 36, scoreY = L.stageY - 10;
+    this.line(18, hudLine, 357, hudLine, P.line, 1);
+    this.text('发疯值', 19, labelY, 11, P.muted); this.text(String(Math.floor(g.score)).padStart(4, '0'), 18, scoreY, 27, P.ink, '500');
+    this.text('本机最佳', 142, labelY, 11, P.muted); this.text(app.best ? String(app.best) : '—', 142, scoreY - 3, 19, P.ink, '500');
+    this.text('剩余时间', 356, labelY, 11, P.muted, '400', 'right'); this.text(Math.ceil(g.remaining) + 's', 356, scoreY, 26, P.ink, '500', 'right');
+    this.scene(g, time, app.hitUntil > timestamp, app, timestamp);
     if (g.mode === 'result' || g.mode === 'paused') this.overlay(g, app);
-    const end = 219 + L.stageH;
-    this.text('装人体力', 19, end + 23, 10, P.muted);
+    const end = L.stageY + L.stageH;
+    // 连续触控区先注册，顶部设置和结算控件不会被当作游戏输入。
+    if (g.mode === 'playing') this.hits.push({ id: 'hold', x: 18, y: L.stageY, w: 339, h: L.stageH + 113 });
+    this.text('装人体力', 19, end + 23, 12, P.muted);
     this.rect(81, end + 16, 225, 5, 3, P.line);
     const energyW = 225 * g.energy / 100;
     if (energyW > 0) this.rect(81, end + 16, energyW, 5, 3, g.energy < 25 ? P.red : P.ink);
-    this.text(Math.round(g.energy) + '%', 356, end + 24, 10, P.ink, '500', 'right');
-    if (g.mode === 'intro') this.button('start', '进入电梯  ↗', 18, end + 43, 339, 66, { sub: '30 秒 / 单指操作 / 被看见 3 次就暴露' });
+    this.text(Math.round(g.energy) + '%', 356, end + 24, 12, P.ink, '500', 'right');
+    if (g.mode === 'intro') this.button('start', '进入电梯  ↗', 18, end + 43, 339, 66, { sub: '30 秒 / 按住场景或按钮装人' });
     else if (g.mode === 'result') this.button('restart', '再发一次疯  ↗', 18, end + 43, 339, 66, { sub: '这一次，你能比刚才更像个人吗？' });
     else if (g.mode === 'paused') this.button('resume', '继续游戏  ↗', 18, end + 43, 339, 66, { sub: '返回后记得重新按住装人' });
-    else this.button('hold', g.holding ? '正在装人' : '按住装人', 18, end + 43, 339, 66, { pressed: g.holding, fill: g.holding ? '#ddd6ed' : P.lime, sub: g.holding ? '体力消耗中 · 等门关好再松手' : '松手做马 · 越晚收手奖励越高' });
-    this.fitText(g.mode === 'intro' ? '听到叮就按住，门关好再松手。一直装人会累！' : '提前收手保命，极限收手加分。', 19, end + 137, 335, 10, P.muted);
+    else this.button('hold', g.holding ? '正在装人' : '按住装人', 18, end + 43, 339, 66, { pressed: g.holding, fill: g.holding ? '#ddd6ed' : P.lime, sub: g.holding ? '体力消耗中 · 等门关好再松手' : '场景也能按 · 松手做马' });
+    const stageLabel = g.mode === 'intro' ? '前 8 秒熟悉操作 · 后 10 秒老板查岗' : g.stage.label + ' · ' + g.stage.hint;
+    this.fitText(stageLabel, 19, end + 131, 335, 12, g.stage.id === 'inspection' ? P.red : P.muted);
     if (app.toastUntil > timestamp) {
       this.rect(37, end - 56, 301, 39, 10, '#29282ff2');
       this.fitText(app.toastText, 187.5, end - 31, 277, 12, P.paper, '500', 'center');

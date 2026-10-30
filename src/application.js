@@ -21,6 +21,9 @@ class Application {
     this.toastUntil = 0;
     this.toastText = '';
     this.hitUntil = 0;
+    this.nearStarted = -Infinity;
+    this.nearUntil = 0;
+    this.poseStarted = -Infinity;
     this.frameId = null;
     this.lastTime = this.now();
     this.loadRecord();
@@ -109,21 +112,38 @@ class Application {
   }
 
   onGameEvent(event) {
-    if (event.type === 'start') this.newBest = false;
+    if (event.type === 'start') {
+      this.newBest = false;
+      this.nearUntil = 0;
+      this.hitUntil = 0;
+      this.toastUntil = 0;
+      this.poseStarted = -Infinity;
+    }
+    if (event.type === 'pose') this.poseStarted = this.now();
     if (event.type === 'caught') {
       this.hitUntil = this.now() + 420;
       this.audio.play('caught');
-      if (!this.muted && typeof this.api.vibrateShort === 'function') {
-        try { this.api.vibrateShort({ type: 'light', fail: function () {} }); } catch (e) {}
-      }
+      this.vibrate();
     }
+    if (event.type === 'near') {
+      this.nearStarted = this.now();
+      this.nearUntil = this.nearStarted + 950;
+      this.vibrate();
+    }
+    if (event.type === 'stage') this.toast(event.label + ' · ' + this.engine.stage.hint, 2000);
     if (event.type === 'warning' || event.type === 'near') this.audio.play(event.type);
-    if (event.type === 'pause') this.audio.stop();
+    if (event.type === 'pause') { this.audio.stop(); this.nearUntil = 0; this.hitUntil = 0; }
     if (event.type === 'finish') {
       this.newBest = event.score > this.best;
       this.best = Math.max(this.best, event.score);
       this.saveRecord();
       this.audio.play('finish');
+    }
+  }
+
+  vibrate() {
+    if (!this.muted && typeof this.api.vibrateShort === 'function') {
+      try { this.api.vibrateShort({ type: 'light', fail: function () {} }); } catch (e) {}
     }
   }
 
@@ -155,7 +175,7 @@ class Application {
     const touch = this.findTouch(event);
     if (!touch || this.touchAction !== 'hold') return;
     const hit = this.renderer.hitAt(this.renderer.point(touch));
-    // 滑出按钮即松手，重新按下才能恢复；第二根手指不接管。
+    // 场景、体力条和主按钮连成连续操作区；滑出操作区或取消时释放。
     if (hit !== 'hold') this.clearTouch();
   }
 
